@@ -1,0 +1,10 @@
+{
+  "name": "Remix SmartAttend AI - Cloud Attendance System",
+  "description": "Cloud-based student attendance management platform with AWS architecture, dynamic QR sessions, attendance engine, and Gemini AI assistant.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

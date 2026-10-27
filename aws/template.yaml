@@ -1,0 +1,280 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: SmartAttend AI - Production Serverless Cloud Architecture (DynamoDB, Lambda Python 3.11, API Gateway, Cognito, S3, CloudFront)
+
+Parameters:
+  Environment:
+    Type: String
+    Default: prod
+    AllowedValues: [dev, staging, prod]
+    Description: Deployment stage environment
+  GeminiApiKey:
+    Type: String
+    NoEcho: true
+    Description: Google Gemini API key for attendance assistant (stored in AWS Secrets Manager)
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 512
+    Runtime: python3.11
+    Tracing: Active
+    Environment:
+      Variables:
+        STAGE: !Ref Environment
+        GEMINI_API_KEY: !Ref GeminiApiKey
+        USERS_TABLE: !Ref UsersTable
+        SUBJECTS_TABLE: !Ref SubjectsTable
+        SESSIONS_TABLE: !Ref SessionsTable
+        ATTENDANCE_TABLE: !Ref AttendanceRecordsTable
+        AUDIT_TABLE: !Ref AuditLogsTable
+        REPORTS_BUCKET: !Ref ReportsBucket
+
+Resources:
+  # ==========================================
+  # 1. AMAZON COGNITO (AUTHENTICATION & RBAC)
+  # ==========================================
+  CognitoUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub smartattend-userpool-${Environment}
+      UsernameAttributes: [email]
+      AutoVerifiedAttributes: [email]
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireUppercase: true
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+      Schema:
+        - Name: role
+          AttributeDataType: String
+          Mutable: true
+          Required: false
+        - Name: departmentId
+          AttributeDataType: String
+          Mutable: true
+        - Name: rollNumber
+          AttributeDataType: String
+          Mutable: true
+
+  CognitoUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub smartattend-web-client-${Environment}
+      UserPoolId: !Ref CognitoUserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_USER_PASSWORD_AUTH
+
+  # ==========================================
+  # 2. AMAZON DYNAMODB (PERSISTENT DATA LAYER)
+  # ==========================================
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub smartattend_users_${Environment}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: email
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: EmailIndex
+          KeySchema:
+            - AttributeName: email
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  SubjectsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub smartattend_subjects_${Environment}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: subjectId
+          AttributeType: S
+        - AttributeName: teacherId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: subjectId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: TeacherSubjectsIndex
+          KeySchema:
+            - AttributeName: teacherId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  SessionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub smartattend_sessions_${Environment}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: sessionId
+          AttributeType: S
+        - AttributeName: subjectId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: sessionId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: SubjectSessionsIndex
+          KeySchema:
+            - AttributeName: subjectId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  AttendanceRecordsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub smartattend_records_${Environment}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: sessionId
+          AttributeType: S
+        - AttributeName: studentId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: sessionId
+          KeyType: HASH
+        - AttributeName: studentId
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: StudentHistoryIndex
+          KeySchema:
+            - AttributeName: studentId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  AuditLogsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub smartattend_audit_logs_${Environment}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: auditId
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: S
+      KeySchema:
+        - AttributeName: auditId
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+
+  # ==========================================
+  # 3. AMAZON S3 (REPORTS STORAGE & HOSTING)
+  # ==========================================
+  ReportsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub smartattend-reports-${AWS::AccountId}-${Environment}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub smartattend-frontend-${AWS::AccountId}-${Environment}
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: index.html
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # ==========================================
+  # 4. AMAZON API GATEWAY HTTP API (REST ENDPOINTS)
+  # ==========================================
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Name: !Sub smartattend-api-${Environment}
+      CorsConfiguration:
+        AllowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
+        AllowHeaders: ['Content-Type', 'Authorization']
+        AllowOrigins: ['*']
+
+  # ==========================================
+  # 5. AWS LAMBDA FUNCTION (PYTHON 3.11 BACKEND)
+  # ==========================================
+  AttendanceFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub smartattend-handler-${Environment}
+      CodeUri: ./
+      Handler: lambda_function.lambda_handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SubjectsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SessionsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AttendanceRecordsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AuditLogsTable
+        - S3CrudPolicy:
+            BucketName: !Ref ReportsBucket
+      Events:
+        ApiHealth:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /api/health
+            Method: GET
+        GenerateQr:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /api/sessions/generate-qr
+            Method: POST
+        ValidateQr:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /api/sessions/validate-qr
+            Method: POST
+        AiAssistant:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /api/ai/assistant
+            Method: POST
+
+Outputs:
+  ApiEndpoint:
+    Description: HTTP API Gateway Endpoint URL
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+  UserPoolId:
+    Description: Cognito User Pool ID
+    Value: !Ref CognitoUserPool
+  UserPoolClientId:
+    Description: Cognito User Pool Client ID
+    Value: !Ref CognitoUserPoolClient
+  FrontendBucketName:
+    Description: S3 Bucket Name for Web Hosting
+    Value: !Ref FrontendBucket
