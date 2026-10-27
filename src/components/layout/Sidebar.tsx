@@ -24,6 +24,7 @@ import {
   ChevronRight,
   Server,
   Database,
+  Rocket,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -210,6 +211,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
               Region: {config.awsRegion}
             </div>
           </div>
+
+          <button
+            onClick={() => handleNavClick('aws-deploy')}
+            className="w-full mt-2 py-1.5 px-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[11px] font-bold flex items-center justify-center space-x-1.5 transition-colors shadow-2xs"
+          >
+            <Rocket className="w-3.5 h-3.5" />
+            <span>AWS Deployment Guide</span>
+          </button>
         </div>
       </aside>
     </>

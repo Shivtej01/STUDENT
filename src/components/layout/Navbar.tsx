@@ -14,6 +14,7 @@ import {
   AlertTriangle,
   Info,
   Menu,
+  Rocket,
 } from 'lucide-react';
 import { UserRole } from '../../types/attendance';
 
@@ -58,11 +59,20 @@ export const Navbar: React.FC<NavbarProps> = ({
           </span>
           <span className="text-slate-500 hidden md:inline">•</span>
           <span className="text-slate-400 text-[11px] hidden md:inline">
-            DynamoDB (On-Demand) • Lambda (Python/Node) • Cognito Auth • S3 Bucket: {config.s3ReportBucket}
+            DynamoDB (On-Demand) • Lambda (Python 3.11) • Cognito Auth • S3 Bucket: {config.s3ReportBucket}
           </span>
         </div>
-        <div className="flex items-center space-x-3 text-[11px]">
-          <span className="text-slate-400">Current Role:</span>
+        <div className="flex items-center space-x-2.5 text-[11px]">
+          <button
+            onClick={() => setActiveView('aws-deploy')}
+            className="flex items-center space-x-1.5 px-2.5 py-0.5 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-[10px] transition-colors shadow-xs"
+            title="Open AWS Deployment Guide and scripts"
+          >
+            <Rocket className="w-3 h-3" />
+            <span>Deploy on AWS Guide</span>
+          </button>
+          <span className="text-slate-500 hidden sm:inline">|</span>
+          <span className="text-slate-400 hidden sm:inline">Role:</span>
           <span className="font-semibold text-white uppercase tracking-wider bg-indigo-600/50 px-2 py-0.5 rounded border border-indigo-400/40">
             {currentUser.role}
           </span>

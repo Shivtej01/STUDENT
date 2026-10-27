@@ -39,6 +39,7 @@ import { AdminSystemSettings } from './components/admin/AdminSystemSettings';
 // Common & Public Views
 import { UserProfileSettings } from './components/common/UserProfileSettings';
 import { GeminiAssistantModal } from './components/ai/GeminiAssistantModal';
+import { AwsDeploymentHub } from './components/common/AwsDeploymentHub';
 import { LoginPage } from './components/public/LoginPage';
 import { AlertCircle } from 'lucide-react';
 
@@ -57,6 +58,11 @@ const AppContent: React.FC = () => {
     // Shared profile
     if (activeView === 'profile') {
       return <UserProfileSettings />;
+    }
+
+    // Shared AWS Deployment Guide view
+    if (activeView === 'aws-deploy') {
+      return <AwsDeploymentHub standalone={true} onClose={() => setActiveView('dashboard')} />;
     }
 
     // Shared standalone AI assistant view
